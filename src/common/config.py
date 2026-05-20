@@ -21,7 +21,25 @@ class Config:
         for key, value in os.environ.items():
             if key.startswith(prefix):
                 config_key = key[len(prefix):].lower().replace("_", ".")
-                self._set_nested(config_key, value)
+                coerced_value = self._coerce_value(value)
+                self._set_nested(config_key, coerced_value)
+
+    def _coerce_value(self, value: str) -> Any:
+        """Coerce string value to appropriate type (int, float, or string)."""
+        # Try integer first
+        try:
+            return int(value)
+        except ValueError:
+            pass
+        
+        # Try float
+        try:
+            return float(value)
+        except ValueError:
+            pass
+        
+        # Return as string if no coercion possible
+        return value
 
     def _set_nested(self, key: str, value: Any) -> None:
         parts = key.split(".")

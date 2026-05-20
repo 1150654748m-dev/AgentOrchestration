@@ -32,6 +32,41 @@ class TestConfig:
         assert data["key1"] == "value1"
         assert data["key2"] == "value2"
 
+    def test_env_override_integer_coercion(self, monkeypatch):
+        """Test that numeric environment variables are coerced to integers."""
+        monkeypatch.setenv("AO_APP_PORT", "8080")
+        config = Config()
+        assert config.get("app.port") == 8080
+        assert isinstance(config.get("app.port"), int)
+
+    def test_env_override_float_coercion(self, monkeypatch):
+        """Test that numeric environment variables are coerced to floats."""
+        monkeypatch.setenv("AO_METRICS_TIMEOUT", "3.5")
+        config = Config()
+        assert config.get("metrics.timeout") == 3.5
+        assert isinstance(config.get("metrics.timeout"), float)
+
+    def test_env_override_string_preserved(self, monkeypatch):
+        """Test that non-numeric environment variables remain as strings."""
+        monkeypatch.setenv("AO_APP_NAME", "test-app")
+        config = Config()
+        assert config.get("app.name") == "test-app"
+        assert isinstance(config.get("app.name"), str)
+
+    def test_env_override_negative_integer(self, monkeypatch):
+        """Test that negative integers are properly coerced."""
+        monkeypatch.setenv("AO_APP_OFFSET", "-10")
+        config = Config()
+        assert config.get("app.offset") == -10
+        assert isinstance(config.get("app.offset"), int)
+
+    def test_env_override_zero_integer(self, monkeypatch):
+        """Test that zero is properly coerced to integer."""
+        monkeypatch.setenv("AO_APP_COUNT", "0")
+        config = Config()
+        assert config.get("app.count") == 0
+        assert isinstance(config.get("app.count"), int)
+
 # 2019-02-01T18:58:35 update
 
 # 2019-07-31T13:45:15 update
