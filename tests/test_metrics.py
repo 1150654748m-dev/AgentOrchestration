@@ -17,6 +17,21 @@ class TestMetricsCollector:
         snapshot = self.metrics.snapshot()
         assert snapshot["gauges"]["memory.usage"] == 85.5
 
+    def test_gauge_rejects_non_numeric_values(self):
+        """Regression test: gauge should only accept numeric values."""
+        with pytest.raises(TypeError, match="Gauge value must be numeric"):
+            self.metrics.gauge("test", "string_value")
+        with pytest.raises(TypeError, match="Gauge value must be numeric"):
+            self.metrics.gauge("test", None)
+        with pytest.raises(TypeError, match="Gauge value must be numeric"):
+            self.metrics.gauge("test", [1, 2, 3])
+        # Valid numeric values should work
+        self.metrics.gauge("test_int", 42)
+        self.metrics.gauge("test_float", 3.14)
+        snapshot = self.metrics.snapshot()
+        assert snapshot["gauges"]["test_int"] == 42.0
+        assert snapshot["gauges"]["test_float"] == 3.14
+
     def test_observe(self):
         self.metrics.observe("response.time", 0.5)
         self.metrics.observe("response.time", 1.5)
