@@ -7,6 +7,12 @@ from typing import Any, Callable, Dict, Optional
 
 def task(name: Optional[str] = None, retries: int = 0, timeout: int = 300):
     """Decorator for marking a method as an agent task handler."""
+    # Validate timeout is a positive number
+    if not isinstance(timeout, (int, float)):
+        raise TypeError(f"timeout must be a number, got {type(timeout).__name__}")
+    if timeout <= 0:
+        raise ValueError(f"timeout must be positive, got {timeout}")
+
     def decorator(func: Callable) -> Callable:
         func.__task_config__ = {
             "name": name or func.__name__,
