@@ -1,5 +1,5 @@
 import pytest
-from src.common.config import Config
+from src.common.config import Config, ConfigError
 
 
 class TestConfig:
@@ -31,6 +31,44 @@ class TestConfig:
         data = config.to_dict()
         assert data["key1"] == "value1"
         assert data["key2"] == "value2"
+
+    def test_load_malformed_json_includes_path_and_location(self, tmp_path):
+        """Test that JSON parse errors include file path, line, and column."""
+        config_file = tmp_path / "bad_config.json"
+        config_file.write_text('{"app": {"name": "test", "port": }')  # Missing value
+        
+        with pytest.raises(ConfigError) as exc_info:
+            Config(str(config_file))
+        
+        error_msg = str(exc_info.value)
+        assert "Failed to parse config file" in error_msg
+        assert str(config_file) in error_msg
+        assert "line" in error_msg
+        assert "column" in error_msg
+
+    def test_load_malformed_json_shows_line_and_column(self, tmp_path):
+        """Test that JSON parse errors show correct line and column numbers."""
+        config_file = tmp_path / "bad_config.json"
+        # Create a multi-line JSON with an error on line 3
+        config_file.write_text('{\n  "app": {\n    "name": "test",\n    "port": \n  }\n}')
+        
+        with pytest.raises(ConfigError) as exc_info:
+            Config(str(config_file))
+        
+        error_msg = str(exc_info.value)
+        # Should report the error around line 4 (where "port": has no value)
+        assert "line 4" in error_msg or "line 5" in error_msg
+
+    def test_load_missing_file_raises_config_error(self, tmp_path):
+        """Test that loading a missing file raises ConfigError with path info."""
+        missing_file = tmp_path / "nonexistent.json"
+        
+        with pytest.raises(ConfigError) as exc_info:
+            Config(str(missing_file))
+        
+        error_msg = str(exc_info.value)
+        assert "Config file not found" in error_msg
+        assert str(missing_file) in error_msg
 
 # 2019-02-01T18:58:35 update
 
