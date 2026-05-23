@@ -3,8 +3,16 @@
 import asyncio
 import heapq
 import time
+import logging
 from typing import Any, Dict, Optional
 from uuid import uuid4
+
+logger = logging.getLogger(__name__)
+
+
+class TaskValidationError(Exception):
+    """Raised when task payload validation fails."""
+    pass
 
 
 class PriorityQueue:
@@ -36,8 +44,47 @@ class TaskScheduler:
         self._scheduled: Dict[str, float] = {}
         self._in_flight: Dict[str, Dict] = {}
         self._max_retries = 3
+        self._invalid_tasks: list = []
+
+    def _validate_task(self, task: Dict) -> bool:
+        """Validate task payload structure.
+        
+        Returns True if valid, False if invalid.
+        Logs validation failures for audit purposes.
+        """
+        if not isinstance(task, dict):
+            logger.warning(f"Task validation failed: expected dict, got {type(task).__name__}")
+            return False
+        
+        # Check required fields
+        if "type" not in task:
+            logger.warning("Task validation failed: missing required field 'type'")
+            return False
+        
+        if not isinstance(task.get("type"), str):
+            logger.warning("Task validation failed: 'type' must be a string")
+            return False
+        
+        # Validate payload if present
+        if "payload" in task and not isinstance(task["payload"], dict):
+            logger.warning("Task validation failed: 'payload' must be a dict if provided")
+            return False
+        
+        return True
 
     def enqueue(self, task: Dict, queue: str = "default", priority: int = 0) -> str:
+        # Validate task payload before enqueueing
+        if not self._validate_task(task):
+            task_id = str(uuid4())
+            logger.error(f"Rejecting invalid task payload: task_id={task_id}")
+            self._invalid_tasks.append({
+                "task_id": task_id,
+                "task": task,
+                "reason": "validation_failed",
+                "timestamp": time.time()
+            })
+            raise TaskValidationError(f"Invalid task payload: task_id={task_id}")
+        
         task_id = str(uuid4())
         task["id"] = task_id
         task["enqueued_at"] = time.time()
@@ -46,6 +93,7 @@ class TaskScheduler:
         if queue not in self._queues:
             self._queues[queue] = PriorityQueue()
         self._queues[queue].push(task, priority)
+        logger.info(f"Task enqueued: task_id={task_id}, type={task.get('type')}, queue={queue}")
         return task_id
 
     def schedule(self, task: Dict, delay: float, queue: str = "default", priority: int = 0) -> str:

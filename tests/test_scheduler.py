@@ -1,5 +1,5 @@
 import pytest
-from src.orchestrator.scheduler import TaskScheduler
+from src.orchestrator.scheduler import TaskScheduler, TaskValidationError
 
 
 class TestTaskScheduler:
@@ -35,6 +35,42 @@ class TestTaskScheduler:
         import asyncio
         task = asyncio.run(self.scheduler.dequeue())
         assert self.scheduler.fail(task["id"])
+
+    def test_enqueue_rejects_non_dict_task(self):
+        """Test that non-dict task payloads are rejected."""
+        with pytest.raises(TaskValidationError):
+            self.scheduler.enqueue("not a dict")
+
+    def test_enqueue_rejects_task_without_type(self):
+        """Test that tasks without 'type' field are rejected."""
+        with pytest.raises(TaskValidationError):
+            self.scheduler.enqueue({"payload": {}})
+
+    def test_enqueue_rejects_task_with_invalid_type(self):
+        """Test that tasks with non-string 'type' are rejected."""
+        with pytest.raises(TaskValidationError):
+            self.scheduler.enqueue({"type": 123})
+
+    def test_enqueue_rejects_task_with_invalid_payload(self):
+        """Test that tasks with non-dict 'payload' are rejected."""
+        with pytest.raises(TaskValidationError):
+            self.scheduler.enqueue({"type": "test", "payload": "not a dict"})
+
+    def test_enqueue_accepts_valid_task(self):
+        """Test that valid tasks are accepted and enqueued."""
+        task_id = self.scheduler.enqueue({"type": "test", "payload": {"key": "value"}})
+        assert task_id is not None
+        assert len(task_id) > 0
+
+    def test_invalid_tasks_are_logged(self):
+        """Test that invalid tasks are recorded for audit."""
+        initial_count = len(self.scheduler._invalid_tasks)
+        try:
+            self.scheduler.enqueue({"invalid": "task"})
+        except TaskValidationError:
+            pass
+        assert len(self.scheduler._invalid_tasks) == initial_count + 1
+        assert self.scheduler._invalid_tasks[-1]["reason"] == "validation_failed"
 
 # 2019-01-09T19:07:03 update
 
