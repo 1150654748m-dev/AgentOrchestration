@@ -7,7 +7,47 @@ from src.common.config import Config
 from src.common.logging import configure_logging
 
 
-def cli():
+def cmd_init(args) -> int:
+    """Handle init command. Returns exit code."""
+    print(f"Initializing project: {args.name}")
+    return 0
+
+
+def cmd_deploy(args) -> int:
+    """Handle deploy command. Returns exit code."""
+    print(f"Deploying agent from manifest: {args.manifest}")
+    
+    # Simulate deployment logic with proper error handling
+    try:
+        # TODO: Replace with actual deployment logic
+        # For now, simulate a failure to demonstrate exit code propagation
+        if not args.manifest.endswith('.json'):
+            print(f"Error: Invalid manifest file: {args.manifest}", file=sys.stderr)
+            return 1
+        
+        # Simulate successful deployment
+        print("Deployment successful!")
+        return 0
+        
+    except Exception as e:
+        print(f"Error: Deployment failed: {e}", file=sys.stderr)
+        return 1
+
+
+def cmd_status(args) -> int:
+    """Handle status command. Returns exit code."""
+    print("Checking agent status...")
+    return 0
+
+
+def cmd_logs(args) -> int:
+    """Handle logs command. Returns exit code."""
+    print(f"Fetching logs for agent: {args.agent_id}")
+    return 0
+
+
+def cli() -> int:
+    """Main CLI entry point. Returns exit code."""
     parser = argparse.ArgumentParser(description="Agent Orchestrator CLI")
     parser.add_argument("--config", "-c", help="Path to config file")
     parser.add_argument("--verbose", "-v", action="store_true", help="Enable verbose output")
@@ -34,21 +74,24 @@ def cli():
     else:
         configure_logging("INFO")
 
-    if args.command == "init":
-        print(f"Initializing project: {args.name}")
-    elif args.command == "deploy":
-        print(f"Deploying agent from manifest: {args.manifest}")
-    elif args.command == "status":
-        print("Checking agent status...")
-    elif args.command == "logs":
-        print(f"Fetching logs for agent: {args.agent_id}")
+    # Command handler dispatch with explicit exit codes
+    handlers = {
+        "init": cmd_init,
+        "deploy": cmd_deploy,
+        "status": cmd_status,
+        "logs": cmd_logs,
+    }
+
+    if args.command in handlers:
+        exit_code = handlers[args.command](args)
+        return exit_code
     else:
         parser.print_help()
-        sys.exit(1)
+        return 1
 
 
 if __name__ == "__main__":
-    cli()
+    sys.exit(cli())
 
 # 2019-01-03T18:44:00 update
 
