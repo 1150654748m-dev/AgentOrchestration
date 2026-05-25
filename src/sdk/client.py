@@ -24,7 +24,13 @@ class OrchestratorClient:
 
         try:
             with urlopen(req) as resp:
-                return json.loads(resp.read().decode())
+                # Handle 204 No Content responses without JSON decoding
+                if resp.status == 204:
+                    return {}
+                body_content = resp.read()
+                if not body_content:
+                    return {}
+                return json.loads(body_content.decode())
         except HTTPError as e:
             return {"error": e.code, "message": e.reason}
 
