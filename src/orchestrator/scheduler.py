@@ -2,9 +2,51 @@
 
 import asyncio
 import heapq
+import logging
 import time
-from typing import Any, Dict, Optional
+from enum import Enum
+from typing import Any, Dict, Optional, Set
 from uuid import uuid4
+
+logger = logging.getLogger(__name__)
+
+
+class PriorityClass(Enum):
+    """Priority classes for workflow lanes."""
+    URGENT = "urgent"
+    HIGH = "high"
+    NORMAL = "normal"
+    LOW = "low"
+
+
+class FairnessBudget:
+    """Manages fairness budget for a priority class."""
+    
+    def __init__(self, priority_class: PriorityClass, max_concurrent: int = 10):
+        self.priority_class = priority_class
+        self.max_concurrent = max_concurrent
+        self._running: Set[str] = set()
+        self._total_dispatched = 0
+    
+    def can_dispatch(self) -> bool:
+        """Check if a new task can be dispatched within budget."""
+        return len(self._running) < self.max_concurrent
+    
+    def acquire_slot(self, task_id: str) -> bool:
+        """Acquire a slot for task execution."""
+        if self.can_dispatch():
+            self._running.add(task_id)
+            self._total_dispatched += 1
+            return True
+        return False
+    
+    def release_slot(self, task_id: str) -> None:
+        """Release a slot after task completion."""
+        self._running.discard(task_id)
+    
+    def get_utilization(self) -> float:
+        """Get current utilization ratio."""
+        return len(self._running) / self.max_concurrent if self.max_concurrent > 0 else 0.0
 
 
 class PriorityQueue:
@@ -36,6 +78,52 @@ class TaskScheduler:
         self._scheduled: Dict[str, float] = {}
         self._in_flight: Dict[str, Dict] = {}
         self._max_retries = 3
+        # Fairness budgets by priority class (#4604)
+        self._fairness_budgets: Dict[PriorityClass, FairnessBudget] = {
+            PriorityClass.URGENT: FairnessBudget(PriorityClass.URGENT, max_concurrent=20),
+            PriorityClass.HIGH: FairnessBudget(PriorityClass.HIGH, max_concurrent=15),
+            PriorityClass.NORMAL: FairnessBudget(PriorityClass.NORMAL, max_concurrent=10),
+            PriorityClass.LOW: FairnessBudget(PriorityClass.LOW, max_concurrent=5),
+        }
+
+    def _get_priority_class(self, task: Dict) -> PriorityClass:
+        """Extract priority class from task configuration."""
+        priority = task.get("priority", 0)
+        priority_class_str = task.get("priority_class", "normal").lower()
+        
+        # Map string to enum
+        class_map = {
+            "urgent": PriorityClass.URGENT,
+            "high": PriorityClass.HIGH,
+            "normal": PriorityClass.NORMAL,
+            "low": PriorityClass.LOW,
+        }
+        
+        # Also map numeric priorities
+        if priority >= 100:
+            return PriorityClass.URGENT
+        elif priority >= 50:
+            return PriorityClass.HIGH
+        elif priority >= 10:
+            return PriorityClass.NORMAL
+        
+        return class_map.get(priority_class_str, PriorityClass.NORMAL)
+
+    def _can_dispatch_task(self, task: Dict) -> bool:
+        """Check if task can be dispatched within fairness budget (#4604)."""
+        priority_class = self._get_priority_class(task)
+        budget = self._fairness_budgets.get(priority_class)
+        
+        if not budget:
+            return True
+        
+        can_dispatch = budget.can_dispatch()
+        if not can_dispatch:
+            logger.warning(
+                f"Fairness budget exceeded for {priority_class.value} class. "
+                f"Utilization: {budget.get_utilization():.1%}"
+            )
+        return can_dispatch
 
     def enqueue(self, task: Dict, queue: str = "default", priority: int = 0) -> str:
         task_id = str(uuid4())
@@ -65,21 +153,60 @@ class TaskScheduler:
         if queue in self._queues and len(self._queues[queue]) > 0:
             task = self._queues[queue].pop()
             if task:
+                # Check fairness budget before dispatching (#4604)
+                if not self._can_dispatch_task(task):
+                    # Re-queue the task with same priority
+                    self._queues[queue].push(task, task.get("priority", 0))
+                    logger.debug(f"Task {task['id']} deferred due to fairness budget")
+                    return None
+                
+                # Acquire slot in fairness budget
+                priority_class = self._get_priority_class(task)
+                budget = self._fairness_budgets.get(priority_class)
+                if budget:
+                    budget.acquire_slot(task["id"])
+                
                 self._in_flight[task["id"]] = task
                 return task
         return None
 
     def complete(self, task_id: str) -> bool:
-        return self._in_flight.pop(task_id, None) is not None
+        task = self._in_flight.pop(task_id, None)
+        if task:
+            # Release fairness budget slot (#4604)
+            priority_class = self._get_priority_class(task)
+            budget = self._fairness_budgets.get(priority_class)
+            if budget:
+                budget.release_slot(task_id)
+            return True
+        return False
 
     def fail(self, task_id: str, queue: str = "default") -> bool:
         task = self._in_flight.pop(task_id, None)
         if task:
+            # Release fairness budget slot on failure (#4604)
+            priority_class = self._get_priority_class(task)
+            budget = self._fairness_budgets.get(priority_class)
+            if budget:
+                budget.release_slot(task_id)
+            
             task["retries"] += 1
             if task["retries"] < self._max_retries:
                 self.enqueue(task, queue, priority=task.get("priority", 0))
                 return True
         return False
+
+    def get_fairness_stats(self) -> Dict[str, Dict]:
+        """Get fairness budget utilization statistics."""
+        return {
+            pc.value: {
+                "max_concurrent": budget.max_concurrent,
+                "running": len(budget._running),
+                "utilization": budget.get_utilization(),
+                "total_dispatched": budget._total_dispatched,
+            }
+            for pc, budget in self._fairness_budgets.items()
+        }
 
 # 2019-04-25T08:37:12 update
 
