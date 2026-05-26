@@ -2,7 +2,7 @@
 
 import time
 import logging
-from typing import Callable
+from typing import Callable, Optional
 from starlette.middleware.base import BaseHTTPMiddleware
 from starlette.requests import Request
 from starlette.responses import Response
@@ -10,12 +10,44 @@ from starlette.responses import Response
 logger = logging.getLogger(__name__)
 
 
+def parse_token_nbf(token: str) -> Optional[float]:
+    """Extract not-before (nbf) timestamp from token payload."""
+    try:
+        # Simple JWT-like parsing: header.payload.signature
+        parts = token.split(".")
+        if len(parts) >= 2:
+            import base64
+            import json
+            # Add padding if needed
+            payload = parts[1]
+            padding = 4 - len(payload) % 4
+            if padding != 4:
+                payload += "=" * padding
+            decoded = base64.urlsafe_b64decode(payload)
+            data = json.loads(decoded)
+            nbf = data.get("nbf") or data.get("not_before")
+            return float(nbf) if nbf else None
+    except Exception:
+        pass
+    return None
+
+
 class AuthMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
         if request.url.path.startswith("/api/v2") and request.url.path != "/api/v2/auth/token":
-            token = request.headers.get("Authorization", "")
-            if not token.startswith("Bearer "):
+            auth_header = request.headers.get("Authorization", "")
+            if not auth_header.startswith("Bearer "):
                 return Response(status_code=401, content="Unauthorized")
+            
+            token = auth_header[7:]  # Remove "Bearer " prefix
+            
+            # Check token not-before time (#4264)
+            nbf = parse_token_nbf(token)
+            if nbf is not None:
+                now = time.time()
+                if now < nbf:
+                    logger.warning(f"Token not valid yet (nbf={nbf}, now={now})")
+                    return Response(status_code=401, content="Token not valid yet")
         return await call_next(request)
 
 
