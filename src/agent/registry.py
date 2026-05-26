@@ -42,8 +42,17 @@ class AgentRegistry:
         self._index[group].append(agent_id)
         return agent_id
 
+    def _normalize_agent_id(self, agent_id: str) -> str:
+        """Normalize agent ID to lowercase for consistent lookup."""
+        return agent_id.lower().strip()
+
     def get(self, agent_id: str) -> Optional[Dict[str, Any]]:
-        return self._agents.get(agent_id)
+        normalized_id = self._normalize_agent_id(agent_id)
+        # Search for agent with normalized ID matching
+        for aid, agent in self._agents.items():
+            if self._normalize_agent_id(aid) == normalized_id:
+                return agent
+        return None
 
     def list(self, status: Optional[AgentStatus] = None, group: Optional[str] = None) -> List[Dict[str, Any]]:
         agents = self._agents.values()
@@ -55,20 +64,26 @@ class AgentRegistry:
         return list(agents)
 
     def update_status(self, agent_id: str, status: AgentStatus) -> bool:
-        if agent_id not in self._agents:
-            return False
-        self._agents[agent_id]["status"] = status.value
-        self._agents[agent_id]["updated_at"] = time.time()
-        return True
+        normalized_id = self._normalize_agent_id(agent_id)
+        # Find agent with normalized ID matching
+        for aid in self._agents:
+            if self._normalize_agent_id(aid) == normalized_id:
+                self._agents[aid]["status"] = status.value
+                self._agents[aid]["updated_at"] = time.time()
+                return True
+        return False
 
     def delete(self, agent_id: str) -> bool:
-        if agent_id not in self._agents:
-            return False
-        agent = self._agents.pop(agent_id)
-        group = agent["type"].split(".")[0]
-        if group in self._index and agent_id in self._index[group]:
-            self._index[group].remove(agent_id)
-        return True
+        normalized_id = self._normalize_agent_id(agent_id)
+        # Find agent with normalized ID matching
+        for aid in list(self._agents.keys()):
+            if self._normalize_agent_id(aid) == normalized_id:
+                agent = self._agents.pop(aid)
+                group = agent["type"].split(".")[0]
+                if group in self._index and aid in self._index[group]:
+                    self._index[group].remove(aid)
+                return True
+        return False
 
     def count(self) -> int:
         return len(self._agents)

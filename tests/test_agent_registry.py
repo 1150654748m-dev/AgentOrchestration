@@ -48,6 +48,51 @@ class TestAgentRegistry:
     def test_delete_nonexistent_agent(self):
         assert not self.registry.delete("nonexistent-id")
 
+    def test_normalize_agent_id_case_insensitive_lookup(self):
+        """Test that agent IDs are normalized for case-insensitive lookup (#4315)."""
+        # Register with lowercase ID
+        agent_id = self.registry.register("test-agent", "worker.processor")
+        
+        # Should be able to retrieve with uppercase variation
+        agent_upper = self.registry.get(agent_id.upper())
+        assert agent_upper is not None
+        assert agent_upper["name"] == "test-agent"
+        
+        # Should be able to retrieve with mixed case
+        agent_mixed = self.registry.get(agent_id[:8].upper() + agent_id[8:].lower())
+        assert agent_mixed is not None
+
+    def test_normalize_agent_id_update_status(self):
+        """Test that status updates work with case-insensitive agent IDs."""
+        agent_id = self.registry.register("test-agent", "worker.processor")
+        
+        # Update status with uppercase ID
+        assert self.registry.update_status(agent_id.upper(), AgentStatus.RUNNING)
+        
+        # Verify status was updated
+        agent = self.registry.get(agent_id)
+        assert agent["status"] == "running"
+
+    def test_normalize_agent_id_delete(self):
+        """Test that delete works with case-insensitive agent IDs."""
+        agent_id = self.registry.register("test-agent", "worker.processor")
+        
+        # Delete with uppercase ID
+        assert self.registry.delete(agent_id.upper())
+        
+        # Verify agent was deleted
+        assert self.registry.get(agent_id) is None
+        assert self.registry.count() == 0
+
+    def test_normalize_agent_id_with_whitespace(self):
+        """Test that agent IDs with whitespace are normalized."""
+        agent_id = self.registry.register("test-agent", "worker.processor")
+        
+        # Should handle whitespace
+        agent = self.registry.get(f"  {agent_id}  ")
+        assert agent is not None
+        assert agent["name"] == "test-agent"
+
 # 2019-01-23T10:28:57 update
 
 # 2019-01-28T18:15:57 update
